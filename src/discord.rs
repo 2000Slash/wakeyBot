@@ -8,6 +8,8 @@ use std::num::ParseIntError;
 use std::process::Command;
 use std::sync::Arc;
 
+use log::{info, error, warn, debug};
+
 use serenity::async_trait;
 use serenity::framework::StandardFramework;
 use serenity::framework::standard::{CommandResult, Args};
@@ -36,7 +38,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
+        info!("{} is connected!", ready.user.name);
     }
 }
 
@@ -48,13 +50,19 @@ struct General;
 
 #[command]
 async fn ping(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-    let output = Command::new("ping").args(["-c 5", args.rest()]).output();
+    let args_str = args.rest();
+    info!("Sending ping to {}", args_str);
+    let output = Command::new("ping").args(["-c 5", args_str]).output();
     if output.is_err() {
+        error!("Could not execute ping command, {:?}", output.err());
         msg.reply(&ctx, "Could not execute ping").await?;
     } else if output.as_ref().unwrap().status.success() {
+        info!("ping succeeded.");
         msg.reply(&ctx, String::from_utf8(output.unwrap().stdout).unwrap()).await?;
     } else {
-        msg.reply(&ctx, String::from_utf8(output.unwrap().stderr).unwrap()).await?;
+        let error_string = String::from_utf8(output.unwrap().stderr).unwrap();
+        error!("Ping unsuccessful: {}", &error_string);
+        msg.reply(&ctx, error_string).await?;
     }
     Ok(())
 }
@@ -62,14 +70,17 @@ async fn ping(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 #[command]
 async fn wake(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Send a wake on lan packet to a mac address
-    let mac_address_vec = decode_hex(args.rest());
+    let args_str = args.rest();
+    let mac_address_vec = decode_hex(args_str);
     if mac_address_vec.is_err() {
+        warn!("Could not parse: {}", args_str);
         msg.reply(&ctx, "Could not parse mac").await?;
         return Ok(());
     }
     let mac_address_vec = mac_address_vec.unwrap();
     let mac_address: Result<[u8; 6], _> = mac_address_vec.try_into();
     if mac_address.is_err() {
+        warn!("Could not parse: {}", args_str);
         msg.reply(&ctx, "Could not parse mac").await?;
         return Ok(());
     }
@@ -77,8 +88,10 @@ async fn wake(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let magic_packet = wake_on_lan::MagicPacket::new(&mac_address);
     let err = magic_packet.send();
     if err.is_err() {
+        warn!("Could not wake");
         msg.reply(&ctx, "Could not wake pc").await?;
     } else {
+        info!("Waking {}", args_str);
         msg.reply(&ctx, "Initializing wakey wakey protocol").await?;
     }
 
@@ -94,15 +107,19 @@ async fn ip(ctx: &Context, msg: &Message) -> CommandResult {
         let ip_lock = data.get::<Ip>().unwrap().clone();
         ip = *ip_lock.read().await;
     }
+    debug!("Saved ip: {:?}", ip);
     if ip.is_none() {
+        debug!("Fetching new ip...");
         ip = public_ip::addr_v4().await;
         {
             let data = ctx.data.write().await;
             let ip_lock = data.get::<Ip>().unwrap().clone();
             let mut writer = ip_lock.write().await;
             *writer = ip;
+            debug!("New ip is {:?}", ip);
         }
     }
+    info!("Current ip: {:?}", ip);
     msg.reply(ctx, format!("The ip address is: {:?}", ip)).await?;
     Ok(())
 }
@@ -128,7 +145,7 @@ pub async fn create_client() -> Client {
     }
 
     if let Err(why) = client.start().await {
-        println!("Client error: {:?}", why);
+        error!("Client error: {:?}", why);
     }
     client
 }
