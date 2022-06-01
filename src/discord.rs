@@ -4,16 +4,24 @@
 use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::env;
+use std::num::ParseIntError;
 use std::sync::Arc;
 
 use serenity::async_trait;
 use serenity::framework::StandardFramework;
-use serenity::framework::standard::CommandResult;
+use serenity::framework::standard::{CommandResult, Args};
 use serenity::framework::standard::macros::{group, command};
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::model::id::UserId;
 use serenity::prelude::*;
+
+fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
+}
 
 /// holds a single IPv4Addr or None
 struct Ip;
@@ -38,9 +46,20 @@ impl EventHandler for Handler {
 struct General;
 
 #[command]
-async fn wake(ctx: &Context, msg: &Message) -> CommandResult {
+async fn wake(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     // Send a wake on lan packet to a mac address
-    let mac_address: [u8; 6] = [0, 0, 0, 0, 0, 0];
+    let mac_address_vec = decode_hex(args.rest());
+    if mac_address_vec.is_err() {
+        msg.reply(&ctx, "Could not parse mac").await?;
+        return Ok(());
+    }
+    let mac_address_vec = mac_address_vec.unwrap();
+    let mac_address: Result<[u8; 6], _> = mac_address_vec.try_into();
+    if mac_address.is_err() {
+        msg.reply(&ctx, "Could not parse mac").await?;
+        return Ok(());
+    }
+    let mac_address = mac_address.unwrap();
     let magic_packet = wake_on_lan::MagicPacket::new(&mac_address);
     let err = magic_packet.send();
     if err.is_err() {
