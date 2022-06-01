@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::env;
 use std::num::ParseIntError;
+use std::process::Command;
 use std::sync::Arc;
 
 use serenity::async_trait;
@@ -42,8 +43,21 @@ impl EventHandler for Handler {
 #[group]
 #[owners_only]
 #[only_in(dm)]
-#[commands(ip, wake)]
+#[commands(ip, wake, ping)]
 struct General;
+
+#[command]
+async fn ping(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let output = Command::new("ping").args(["-c 5", args.rest()]).output();
+    if output.is_err() {
+        msg.reply(&ctx, "Could not execute ping").await?;
+    } else if output.as_ref().unwrap().status.success() {
+        msg.reply(&ctx, String::from_utf8(output.unwrap().stdout).unwrap()).await?;
+    } else {
+        msg.reply(&ctx, String::from_utf8(output.unwrap().stderr).unwrap()).await?;
+    }
+    Ok(())
+}
 
 #[command]
 async fn wake(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
