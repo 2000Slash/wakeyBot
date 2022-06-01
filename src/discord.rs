@@ -110,7 +110,7 @@ async fn ip(ctx: &Context, msg: &Message) -> CommandResult {
     debug!("Saved ip: {:?}", ip);
     if ip.is_none() {
         debug!("Fetching new ip...");
-        ip = public_ip::addr_v4().await;
+        ip = fetch_ip();
         {
             let data = ctx.data.write().await;
             let ip_lock = data.get::<Ip>().unwrap().clone();
@@ -122,6 +122,25 @@ async fn ip(ctx: &Context, msg: &Message) -> CommandResult {
     info!("Current ip: {:?}", ip);
     msg.reply(ctx, format!("The ip address is: {:?}", ip)).await?;
     Ok(())
+}
+
+/// fetches the current public ip from api.ipify.org
+fn fetch_ip() -> Option<Ipv4Addr> {
+    let output = Command::new("curl").args(["https://api.ipify.org"]).output();
+    if output.is_err() {
+        warn!("Error while executing curl {:?}", output.as_ref().err());
+    } else if output.as_ref().unwrap().status.success() {
+        let result = String::from_utf8(output.unwrap().stdout).unwrap();
+        debug!("Fetched new ip: {}", &result);
+        let ip: Result<Ipv4Addr, _> = result.parse();
+        if ip.is_err() {
+            warn!("Could not process result from ipify, {}", result);
+        } else {
+            return Some(ip.unwrap());
+        }
+    }
+
+    None
 }
 
 
@@ -141,7 +160,7 @@ pub async fn create_client() -> Client {
 
     {
         let mut data = client.data.write().await;
-        data.insert::<Ip>(Arc::new(RwLock::new(public_ip::addr_v4().await)));
+        data.insert::<Ip>(Arc::new(RwLock::new(None)));
     }
 
     if let Err(why) = client.start().await {
