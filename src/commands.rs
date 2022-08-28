@@ -69,7 +69,12 @@ async fn wake(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 }
 
 #[command]
-async fn ip(ctx: &Context, msg: &Message) -> CommandResult {
+async fn ip(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let mut force = false;
+    if args.rest().eq("force") {
+	info!("Using force to update ip.");
+	force = true;
+    }
     // Send the currently saved Ip to the user. If IP is none, try to fetch it again
     let mut ip: Option<Ipv4Addr>;
     {
@@ -77,16 +82,16 @@ async fn ip(ctx: &Context, msg: &Message) -> CommandResult {
         let ip_lock = data.get::<Ip>().unwrap().clone();
         ip = *ip_lock.read().await;
     }
-    debug!("Saved ip: {:?}", ip);
-    if ip.is_none() {
-        debug!("Fetching new ip...");
+    info!("Saved ip: {:?}", ip);
+    if ip.is_none() || force {
+        info!("Fetching new ip...");
         ip = fetch_ip();
         {
             let data = ctx.data.write().await;
             let ip_lock = data.get::<Ip>().unwrap().clone();
             let mut writer = ip_lock.write().await;
             *writer = ip;
-            debug!("New ip is {:?}", ip);
+            info!("New ip is {:?}", ip);
         }
     }
     info!("Current ip: {:?}", ip);
